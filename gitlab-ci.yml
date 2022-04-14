@@ -56,4 +56,4 @@ deployment-to-prod:
   environment:
     name: prod
   only:
-    - master
+    - main
