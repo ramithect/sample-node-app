@@ -1,0 +1,59 @@
+stages:
+  - build
+  - test
+  - deploy
+
+build:
+  stage: build # must match the stage name declared above
+  variables: 
+    IMAGE: my-priv-registry/sample-node-app:latest
+  script:
+    # Build the container image
+    - docker build -t $IMAGE .
+    # Build report
+    - trivy --exit-code 0 --cache-dir .trivycache/ --no-progress --format template --template "@contrib/gitlab.tpl" -o gl-container-scanning-report.json $IMAGE
+    # Print report
+    - trivy --exit-code 0 --cache-dir .trivycache/ --no-progress --severity HIGH $IMAGE
+    # Fail on severe vulnerabilities
+    - trivy --exit-code 1 --cache-dir .trivycache/ --severity CRITICAL --no-progress $IMAGE
+    # Push the container image to the registry
+    - docker push $IMAGE
+    # Cleanup by removing the local image
+    - docker image rm $IMAGE
+  cache:
+    paths:
+      - .trivycache/
+  # Enables https://docs.gitlab.com/ee/user/application_security/container_scanning/ (Container Scanning report is available on GitLab EE Ultimate or GitLab.com Gold)
+  artifacts:
+    reports:
+      container_scanning: gl-container-scanning-report.json
+
+
+jest:
+  stage: test
+  image: my-registry/my-application:latest
+    - npm run test
+
+deployment-to-stage:
+  stage: deploy # must match the stage name declared above
+  script:
+    # create/update the kubernetes resources
+    - kubectl apply -f manifests.yml
+    # Restart the deployment so as to pull the latest version of the container image
+    - kubectl rollout restart deployment/sample-node-app
+  environment:
+    name: stage
+  only:
+    - devel
+
+deployment-to-prod:
+  stage: deploy # must match the stage name declared above
+  script:
+    # create/update the kubernetes resources
+    - kubectl apply -f manifests.yml
+    # Restart the deployment so as to pull the latest version of the container image
+    - kubectl rollout restart deployment/sample-node-app
+  environment:
+    name: prod
+  only:
+    - master
